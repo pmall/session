@@ -1,5 +1,5 @@
 {
-    "name": "ellipse/session-start",
+    "name": "ellipse/session",
     "type": "library",
     "description": "Psr-15 middleware allowing to use session with Psr-7 request and response",
     "keywords": [
@@ -8,10 +8,10 @@
         "session"
     ],
     "license": "MIT",
-    "homepage": "https://github.com/ellipsephp/session-start",
+    "homepage": "https://github.com/ellipsephp/session",
     "support": {
-        "issues": "https://github.com/ellipsephp/session-start/issues",
-        "source": "https://github.com/ellipsephp/session-start"
+        "issues": "https://github.com/ellipsephp/session/issues",
+        "source": "https://github.com/ellipsephp/session"
     },
     "authors": [
         {

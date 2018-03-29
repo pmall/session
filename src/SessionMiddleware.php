@@ -2,6 +2,8 @@
 
 namespace Ellipse\Session;
 
+use SessionHandlerInterface;
+
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -15,7 +17,7 @@ use Ellipse\Session\Exceptions\SessionDisabledException;
 use Ellipse\Session\Exceptions\SessionAlreadyStartedException;
 use Ellipse\Session\Exceptions\SessionAlreadyClosedException;
 
-class StartSessionMiddleware implements MiddlewareInterface
+class SessionMiddleware implements MiddlewareInterface
 {
     /**
      * Session options disabling php session cookie handling.
@@ -43,20 +45,63 @@ class StartSessionMiddleware implements MiddlewareInterface
     private $options;
 
     /**
-     * Set up a start session middleware with the given cookie name and options.
+     * The session handler.
      *
-     * @param string    $name
-     * @param array     $options
+     * @var \SessionHandler|null
      */
-    public function __construct(string $name = 'ellipse_session', array $options = [])
+    private $handler;
+
+    /**
+     * Set up a session middleware with the given cookie name and options and an
+     * optional session handler.
+     *
+     * @param string                    $name
+     * @param array                     $options
+     * @param \SessionHandlerInterface  $handler
+     */
+    public function __construct(string $name = null, array $options = [], SessionHandlerInterface $handler = null)
     {
         $this->name = $name;
         $this->options = $options;
+        $this->handler = $handler;
     }
 
     /**
-     * Start the session, handle the request and add the session cookie to the
-     * response.
+     * Return a new session middleware using the given cookie name.
+     *
+     * @param string $name
+     * @return \Ellipse\Session\SessionMiddleware
+     */
+    public function withCookieName(string $name): SessionMiddleware
+    {
+        return new SessionMiddleware($name, $this->options, $this->handler);
+    }
+
+    /**
+     * Return a new session middleware using the given cookie options.
+     *
+     * @param array $options
+     * @return \Ellipse\Session\SessionMiddleware
+     */
+    public function withCookieOptions(array $options): SessionMiddleware
+    {
+        return new SessionMiddleware($this->name, $options, $this->handler);
+    }
+
+    /**
+     * Return a new session middleware using the given session handler.
+     *
+     * @param \SessionHandlerInterface $handler
+     * @return \Ellipse\Session\SessionMiddleware
+     */
+    public function withSessionHandler(SessionHandlerInterface $handler): SessionMiddleware
+    {
+        return new SessionMiddleware($this->name, $this->options, $handler);
+    }
+
+    /**
+     * Start the session, handle the request and save the session. Manage the
+     * session id with Psr-7 request and response.
      *
      * @param \Psr\Http\Message\ServerRequestInterface  $request
      * @param \Psr\Http\Server\RequestHandlerInterface  $handler
@@ -69,17 +114,21 @@ class StartSessionMiddleware implements MiddlewareInterface
         $this->failWhenDisabled();
         $this->failWhenStarted();
 
+        // Set the session name and handler when specified.
+        if ($this->name) session_name($this->name);
+        if ($this->handler) session_set_save_handler($this->handler);
+
         // Try to retrieve the session id from the request cookies.
+        $name = session_name();
+
         $cookies = $request->getCookieParams();
 
-        $session_id = $cookies[$this->name] ?? '';
+        $session_id = $cookies[$name] ?? '';
 
         if ($session_id != '') session_id($session_id);
 
         // Handle the request when session_start is successful.
         if (session_start(self::SESSION_OPTIONS)) {
-
-            session_name($this->name);
 
             $response = $handler->handle($request);
 
@@ -89,7 +138,7 @@ class StartSessionMiddleware implements MiddlewareInterface
 
             session_write_close();
 
-            return $this->withSessionCookie($response, $session_id);
+            return $this->withSessionCookie($response, $name, $session_id);
 
         }
 
@@ -142,13 +191,15 @@ class StartSessionMiddleware implements MiddlewareInterface
     }
 
     /**
-     * Attach a session cookie with the given sesison id to the given response.
+     * Attach a session cookie with the given name and session id to the given
+     * response.
      *
      * @param \Psr\Http\Message\ResponseInterface   $response
+     * @param string                                $cookie_name
      * @param string                                $session_id
      * @return \Psr\Http\Message\ResponseInterface
      */
-    private function withSessionCookie(ResponseInterface $response, string $session_id): ResponseInterface
+    private function withSessionCookie(ResponseInterface $response, string $cookie_name, string $session_id): ResponseInterface
     {
         // Merge session cookie options.
         $default = session_get_cookie_params();
@@ -161,7 +212,7 @@ class StartSessionMiddleware implements MiddlewareInterface
         if ($options['lifetime'] < 0) $options['lifetime'] = 0;
 
         // Create a session cookie and attach it to the response.
-        $cookie = SetCookie::create($this->name, $session_id)
+        $cookie = SetCookie::create($cookie_name, $session_id)
             ->withMaxAge($options['lifetime'])
             ->withPath($options['path'])
             ->withDomain($options['domain'])
